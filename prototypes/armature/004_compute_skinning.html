@@ -140,6 +140,13 @@ function gltfPrimitive( gltf ){
 // #endregion
 
 // #region TRANSFORMFEEDBACK COMPUTE
+
+/* TODO: May not need to set varyings before linking, Can be set in render loop before compute
+https://github.com/CodyJasonBennett/four/pull/2/files#diff-54e8e26de4c8c34dd4daf8d1344a8760265e3803eb24a4746719e7da924d5bdcR601
+
+https://developer.mozilla.org/en-US/docs/Web/API/WebGL2RenderingContext/transformFeedbackVaryings
+*/
+
 import GLBuffer from '../_lib/gl/GLBuffer.js';
 import GLShader from '../_lib/gl/GLShader.js';
 

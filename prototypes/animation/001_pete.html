@@ -37,7 +37,6 @@ window.addEventListener( 'load', async _=>{
     
     const skin = arm.useSkin( TranMatrixSkin );
     const mat  = MatrixSkinMaterial( tex, arm.skin );
-
     const mesh = new THREE.Mesh( bGeo, mat );
     App.scene.add( mesh );
 
@@ -65,10 +64,10 @@ window.addEventListener( 'load', async _=>{
     animator.scale = 1.0;
     animator.setClip( clip );
     animator.onEvent = onAnimationEvent;
+    animator.start();
 
-    
-    // animator.atFrame( 0 );
-    // animator.updatePose( pose );
+    animator.atFrame( 0 );
+    animator.updatePose( pose );
 
     Ref.animator = animator;
     Ref.pose     = pose;
@@ -101,7 +100,7 @@ window.addEventListener( 'load', async _=>{
     sockets.updateFromPose( pose );
     
     // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    // Ref.shake = cameraShake( App.camera );
+    Ref.shake = cameraShake( App.camera );
     App.createRenderLoop( onPreRender ).start(); 
     // App.renderLoop();
 });
@@ -111,6 +110,8 @@ function onPreRender( dt, et ){
     Ref.animator
         .step( dt )
         .updatePose( Ref.pose );
+
+    // console.log( Ref.animator.clock );
     
     Ref.pose.updateWorld();
     Ref.skin.updateFromPose( Ref.pose );
@@ -123,7 +124,7 @@ function onPreRender( dt, et ){
     Debug.pnt.add( [0.5,0.2,0],  (Ref.left)?  0x00ff00:0xff0000, 4 );
     Debug.pnt.add( [-0.5,0.2,0], (Ref.right)? 0x00ff00:0xff0000, 4 );
 
-    // Ref.shake.update();
+    Ref.shake.update();
 }
 
 function onAnimationEvent( evtName ){
@@ -136,7 +137,7 @@ function onAnimationEvent( evtName ){
         case 'FootR_Down':
             Ref.left  = false;
             Ref.right = true;
-            // Ref.shake.start();
+            Ref.shake.start();
             break;
     }
 }

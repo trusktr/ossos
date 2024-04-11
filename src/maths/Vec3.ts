@@ -332,7 +332,26 @@ export default class Vec3 extends Array< number >{
         return this;
     }
 
-    dot( b: ConstVec3 ): number{ return this[ 0 ] * b[ 0 ] + this[ 1 ] * b[ 1 ] + this[ 2 ] * b[ 2 ]; } 
+    dot( b: ConstVec3 ): number{ return this[ 0 ] * b[ 0 ] + this[ 1 ] * b[ 1 ] + this[ 2 ] * b[ 2 ]; }
+
+    /** Align vector direction so its orthogonal to an axis direction */
+    alignTwist( axis: TVec3, dir:TVec3 ): this{
+        // newUp = cross( fwd, cross( up, fwd ) );
+        this.fromCross( dir, axis )     // Get orthogonal direction
+            .fromCross( axis, this );   // Relign Dir onto Axis
+        return this;
+    }
+
+    /** Shift current position to be on the plane */
+    planeProj( planePos: ConstVec3, planeNorm: ConstVec3 ): this{
+        // p = target + norm * -( dot( norm, target ) + planeConst )
+        const planeConst = -Vec3.dot( planePos, planeNorm );
+        const scl        = -( Vec3.dot( planeNorm, this ) + planeConst );
+        this[0] += planeNorm[0] * scl;
+        this[1] += planeNorm[1] * scl;
+        this[2] += planeNorm[2] * scl;
+        return this;
+    }
     // #endregion
 
     // #region TRANFORMS

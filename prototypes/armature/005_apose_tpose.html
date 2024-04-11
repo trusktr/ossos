@@ -1,0 +1,311 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title></title></head>
+<style>canvas{ display:block; } body, html { padding:0px; margin:0px; width:100%; height:100%; }</style>
+<body><script type="module">
+// #region IMPORTS
+import useThreeWebGL2, { THREE, useDarkScene, useVisualDebug } from '../_lib/useThreeWebGL2.js';
+import Util                         from '../_lib/misc/Util.js';
+
+import {
+    Armature, Pose, TranMatrixSkin,
+    BoneMap,
+    Vec3, Quat,
+} from '../../src/index';
+
+import Gltf2                        from '../_lib/gltf2Parser.es.js';
+import MatrixSkinMaterial           from '../_lib/customSkinning/MatrixSkinMaterial.js';
+// #endregion
+
+// #region MAIN
+let App = useDarkScene( useThreeWebGL2() );
+let Debug;
+
+window.addEventListener( 'load', async _=>{
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // Setup
+    // App.sphericalLook( 50, 30, 3, [ 0, 1, 0 ] );
+    App.sphericalLook( 0, 30, 3, [ 0, 1, 0 ] );
+    Debug = await useVisualDebug( App );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // Create Skinned Mesh from GLTF Model
+    const gltf          = await Gltf2.fetch( '/prototypes/_res/models/fortman/fortnite_mann.gltf' );
+    const [ mesh, arm ] = GLTF.loadChar( gltf, 0.05 );
+
+    App.scene.add( mesh );
+    Util.debugBones( arm.bindPose.bones, Debug, 0.00, 0.2 );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    const pose  = arm.newPose();
+    const bMap  = new BoneMap( pose ); // Use Pose instead of Armature to modify pose bones instead
+    const lArm  = bMap.getBones( ['upperarm_l', 'forearm_l', 'hand_l'] );
+    const rArm  = bMap.getBones( ['upperarm_r', 'forearm_r', 'hand_r'] );
+    const lHand = pose.getBones( ['hand_l', 'middle_01_l', 'ring_01_l'] );
+    const rHand = pose.getBones( ['hand_r', 'middle_01_r', 'ring_01_r'] );
+
+    const lLeg  = bMap.getBones( ['thigh_l', 'shin_l', 'foot_l', 'toe_l'] );
+    const rLeg  = bMap.getBones( ['thigh_r', 'shin_r', 'foot_r', 'toe_r'] );
+
+    // for( const b of lArm ) Debug.pnt.add( b.world.pos, 0xffffff, 0.7, 6 );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // Realign the Limbs
+
+    alignArm( pose, lArm, Vec3.UP, Vec3.RIGHT );
+    pose.updateWorldChildren( lArm[0].pindex );
+    alignHand( pose, lHand, Vec3.UP, Vec3.RIGHT );
+
+    alignArm( pose, rArm, Vec3.UP, Vec3.LEFT );
+    pose.updateWorldChildren( rArm[0].pindex );
+    alignHand( pose, rHand, Vec3.DOWN, Vec3.LEFT );
+
+    alignLeg( pose, lLeg );
+    alignLeg( pose, rLeg );
+
+    // pose.updateWorld();
+    // Util.debugBones( pose.bones, Debug, 0.00, 0.2, true );    
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    pose.updateWorld();
+    arm.skin.updateFromPose( pose );
+    
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    App.renderLoop();
+});
+// #endregion
+
+
+// #region BONE ALIGNMENT
+function alignArm( pose, bones, dirTwist=[0,1,0], dirSwing=[1,0,0] ){
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // Compute some Vectors
+    const va   = new Vec3( bones[0].world.pos ).sub( bones[1].world.pos ).norm(); // Elbow > Shoulder
+    const vb   = new Vec3( bones[2].world.pos ).sub( bones[1].world.pos ).norm(); // Elbow > Hand
+    const vc   = new Vec3( bones[1].world.pos ).sub( bones[0].world.pos ).norm();   // Shoulder > Elbow
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // Compute the orthogonal direction & middle direction
+    const axis = new Vec3().fromCross( va, vb ).norm();     // Elbow rotation axis
+    const rad  = Vec3.angle( va, vb );                      // 
+    const t    = new Vec3();
+    const q    = new Quat();
+    const r    = new Quat();
+    
+    // Debug.ln.add( bones[1].world.pos, t.fromScaleThenAdd( 0.4, axis, bones[1].world.pos ), 0xffff00 );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // Straighten arm first
+
+    q.fromAxisAngle( axis, Math.PI - rad ); // Rotate to 180 degree line
+    r.fromMul( q, bones[1].world.rot )      // Apply
+     .pmulInvert( bones[0].world.rot );     // To Local
+
+    pose.setLocalRot( bones[1].index, r );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // Twist arm so elbow rotation axis is XY aligned
+    const pr = pose.getWorldRotation( bones[0].pindex );        // Get Root Bone's Parent World transform
+
+    // If negative side, flip axis so it point
+    // TODO, can also do DOT check with dirTwist and if neg, flip
+    if( bones[0].world.pos[0] < 0 ) axis.negate();
+
+    // Align vectors to be orthogonal to the Shoulder>Elbow Vector
+    va.alignTwist( vc, axis ).norm();       // Twist From
+    vb.alignTwist( vc, dirTwist ).norm();   // Twist to
+
+    r   .fromMul( q.fromSwing( va, vb ), bones[0].world.rot )   // Twist arm so elbow axis is Z Aligned
+        .pmul( q.fromSwing( vc, dirSwing ) )                    // Swing Arm so it points at the correct direction
+        .pmulInvert( pr );                                      // To LocalSpace
+
+    pose.setLocalRot( bones[0].index, r );
+}
+
+function alignHand( pose, bones, dirTwist=[0,1,0], dirSwing=[1,0,0] ){
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // Bone Array : Hand, Middle Knuckle, Ring Knuckle
+
+    const pr  = pose.getWorldRotation( bones[0].pindex ); 
+    const q   = new Quat();
+    const r   = new Quat();
+    
+    const va = new Vec3();
+    const vb = new Vec3();
+    const vc = new Vec3();
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // Straighten hand with arm
+
+    va.fromLerp( bones[1].world.pos, bones[2].world.pos, 0.5 );
+    vc.fromSub( va, bones[0].world.pos ).norm();
+
+    q.fromSwing( vc, dirSwing );
+    r.fromMul( q, bones[0].world.rot )
+     .pmulInvert( pr );
+
+    pose.setLocalRot( bones[0].index, r );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // Twist so the back of the hand points up
+
+    pose.updateWorldChildren( bones[0].pindex ); // Need Knuckle positions after swing
+
+    // Compute the UP direction
+    va.fromSub( bones[1].world.pos, bones[0].world.pos );   // Vectors from Hand to Knucles
+    vb.fromSub( bones[2].world.pos, bones[0].world.pos );   
+    vc.fromCross( va, vb );                                 // Get the Normal of the Triangle
+    va.alignTwist( dirSwing, vc ).norm();                   // Make it Orthognal Aligned to Swing Vector
+
+    q.fromSwing( va, dirTwist );
+    r.fromMul( q, bones[0].world.rot )
+     .pmulInvert( pr );
+
+     pose.setLocalRot( bones[0].index, r );
+}
+
+function alignLeg( pose, bones, dirTwist=[0,0,1], dirSwing=[0,-1,0] ){
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    const va = new Vec3();
+    const vb = new Vec3();
+    const vc = new Vec3();
+    const t  = new Vec3();
+    const q  = new Quat();
+    const r  = new Quat();
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // Compute Foot qiAxis
+    const qiFwd = new Vec3();
+    const qiUp  = new Vec3();
+    const qiRit = new Vec3();
+
+    // Project toe's position so its coplaner to foot position to define its forward direction
+    qiFwd .copy( bones[3].world.pos )
+        .planeProj( bones[2].world.pos, Vec3.UP )
+        .sub( bones[2].world.pos )
+        .norm();
+    
+    // Make the rest of the directions orthogonal
+    qiRit.fromCross( Vec3.UP, qiFwd, );
+    qiUp.fromCross( qiFwd, qiRit );
+
+    // Quat Inverse Directions
+    q.fromInvert( bones[2].world.rot );
+    qiFwd.transformQuat( q );
+    // qiRit.transformQuat( q ); // NOTE: Dont really need qiRit, only needed to ortho the up direction
+    qiUp.transformQuat( q );
+
+    // Debug.pnt.add( bones[2].world.pos, 0xffffff, 0.8 );
+    // Debug.pnt.add( bones[3].world.pos, 0xffff00, 0.8 );
+
+    // Debug.ln.add( bones[2].world.pos, t.fromScaleThenAdd( 1.5, qiFwd, bones[2].world.pos ), 0xff0000 );
+    // Debug.ln.add( bones[2].world.pos, t.fromScaleThenAdd( 1.5, qiUp, bones[2].world.pos ), 0x00ff00 );
+    // Debug.ln.add( bones[2].world.pos, t.fromScaleThenAdd( 1.5, qiRit, bones[2].world.pos ), 0x0000ff );
+    // Debug.ln.add( bones[2].world.pos, t.fromScaleThenAdd( 0.5, Vec3.UP, bones[2].world.pos ), 0xFFFFFF );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // Straighten Leg
+    va.fromSub( bones[0].world.pos, bones[1].world.pos ).norm();    // Knee > Thigh
+    vb.fromSub( bones[2].world.pos, bones[1].world.pos ).norm();    // Knee > Foot
+    const rad = Vec3.angle( va, vb );
+
+    va.fromSub( bones[2].world.pos, bones[0].world.pos ).norm();    // Thigh > Foot
+    vb.fromSub( bones[3].world.pos, bones[2].world.pos ).norm();    // Foot > Toe
+    const axis = new Vec3().fromCross( va, vb ).norm();
+
+    // Debug.ln.add( bones[0].world.pos, t.fromScaleThenAdd( 1.0, va, bones[0].world.pos ), 0xffffff );
+    // Debug.ln.add( bones[0].world.pos, t.fromScaleThenAdd( 0.7, axis, bones[0].world.pos ), 0xffff00 );
+
+    q.fromAxisAngle( axis, Math.PI - rad ); // Rotate to 180 degree line
+    r.fromMul( q, bones[1].world.rot )      // Apply
+     .pmulInvert( bones[0].world.rot );     // To Local
+
+    pose.setLocalRot( bones[1].index, r );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // Swing leg to align with downward direction
+    const pr = pose.getWorldRotation( bones[0].pindex );
+    
+    pose.updateWorldChildren( bones[0].index, true );
+
+    va.fromSub( bones[2].world.pos, bones[0].world.pos ).norm();    // Thigh > Knee
+
+    q.fromSwing( va, dirSwing );
+    r.fromMul( q, bones[0].world.rot )      // Apply
+     .pmulInvert( pr );                     // To Local
+
+    pose.setLocalRot( bones[0].index, r );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // Realign foot
+    
+    // Compute the starting rotation of the foot
+    pose.updateWorldChildren( bones[0].index, true );
+    r.copy( bones[2].world.rot );   // Get
+
+    // Swing foot to make qiFWD match wFWD
+    va.fromQuat( r, qiFwd );
+    q.fromSwing( va, Vec3.FORWARD );
+    r.pmul( q );
+
+    // Debug.ln.add( bones[2].world.pos, t.fromScaleThenAdd( 1.5, va, bones[2].world.pos ), 0xff0000 );
+    // va.fromQuat( r, qiFwd );
+    // Debug.ln.add( bones[2].world.pos, t.fromScaleThenAdd( 1.5, va, bones[2].world.pos ), 0xffffff );
+
+    // Twist foot to make qiUP match wUP
+    va.fromQuat( r, qiUp );
+    q.fromSwing( va, Vec3.UP );
+    r.pmul( q );
+
+    // To Local Space
+    r.pmulInvert( bones[1].world.rot );
+    pose.setLocalRot( bones[2].index, r );
+}
+// #endregion
+
+// #region HELPERS
+class GLTF{
+    static genArmature( gltf, minLen=0.1 ){
+        const skin  = gltf.getSkin();
+        const arm   = new Armature();
+
+        let b;
+        for( const j of skin.joints ){
+            b = arm.addBone( { name: j.name, parent: j.parentIndex } );
+            if( j.rotation ) b.local.rot.copy( j.rotation );
+            if( j.position ) b.local.pos.copy( j.position );
+            if( j.scale )    b.local.scl.copy( j.scale );
+        }
+
+        arm.bind( minLen );
+        return arm;
+    }
+
+    static skinGeoBuffer( gltf, meshID=undefined ){
+        const gMesh = gltf.getMesh( meshID );
+        const gPrim = gMesh.primitives[ 0 ];
+        const bGeo  = Util.geoBuffer(
+            gPrim.position.data,
+            gPrim.indices.data, 
+            gPrim.normal.data, 
+            gPrim.texcoord_0.data, 
+            gPrim.joints_0.data, 
+            gPrim.weights_0.data, 
+            gPrim.weights_0.componentLen,
+        );
+        return bGeo;
+    }
+
+    static loadChar( gltf, minLen=0.1 ){
+        const bGeo = GLTF.skinGeoBuffer( gltf );
+        const arm  = GLTF.genArmature( gltf, minLen );
+        
+        const skin = arm.useSkin( TranMatrixSkin );
+        const mat  = MatrixSkinMaterial( 'gray', skin ); // new THREE.MeshBasicMaterial()
+        const mesh = new THREE.Mesh( bGeo, mat );
+
+        return [ mesh, arm ];
+    }
+}
+// #endregion
+
+
+</script></body></html>

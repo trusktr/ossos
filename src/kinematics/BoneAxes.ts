@@ -67,3 +67,25 @@ export class BoneAxes{
     }
     
 }
+
+/*
+const qiFwd = new Vec3();
+const qiUp  = new Vec3();
+const qiRit = new Vec3();
+
+// Project toe's position so its coplaner to foot position to define its forward direction
+qiFwd .copy( bones[3].world.pos )
+    .planeProj( bones[2].world.pos, Vec3.UP )
+    .sub( bones[2].world.pos )
+    .norm();
+
+// Make the rest of the directions orthogonal
+qiRit.fromCross( Vec3.UP, qiFwd, );
+qiUp.fromCross( qiFwd, qiRit );
+
+// Quat Inverse Directions
+q.fromInvert( bones[2].world.rot );
+qiFwd.transformQuat( q );
+qiRit.transformQuat( q );
+qiUp.transformQuat( q );
+*/

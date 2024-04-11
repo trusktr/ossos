@@ -46,6 +46,9 @@ window.addEventListener( 'load', async _=>{
     App.scene.add( Ref.char.mesh );
 
     Ref.rig = new BipedalRig( Ref.char.arm );
+    // Ref.rig.sets.lArm.target.setPos( [0,0,1] );
+    // Ref.rig.updatePose();
+
 
     Ref.rig.updateTargetsFromPose();
     Ref.rig.debugTargets()
@@ -53,6 +56,8 @@ window.addEventListener( 'load', async _=>{
     const pos = Ref.rig.getTargetPos( 'arm_l' );
     Ref.gizmo.setPos( 0, pos );
     Ref.gizmo.setPos( 1, [ pos[0]-0.2, pos[1], pos[2]-0.4 ] );
+
+
 
     // Ref.rig.runSolvers();
     // Ref.char.updateSkin( Ref.rig.pose );
@@ -186,7 +191,7 @@ class IKRig{
         return ik;
     }
 
-    // Maybe call it updatePose?
+    // Maybe call it runSolvers?
     updatePose(){ this.executor( this ); return this; }
 }
 

@@ -115,6 +115,33 @@ export default class Pose {
         return this;
     }
 
+    updateWorldChildren( pIdx: number, incParent:boolean = false ): this{
+        const parents = [ pIdx ];
+        let b: Bone;
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        if( incParent ){
+            b = this.bones[ pIdx ];
+            b.world.fromMul( 
+                ( b.pindex !== -1 )
+                    ? this.bones[ b.pindex ].world  // Parent
+                    : this.offset                   // No Parent
+                ,b.local
+            );
+        }
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        for( let i=pIdx+1; i < this.bones.length; i++ ){
+            b = this.bones[ i ];
+            if( parents.indexOf( b.pindex ) === -1 ) continue;
+
+            b.world.fromMul( this.bones[ b.pindex ].world, b.local );
+            parents.push( b.index );
+        }
+
+        return this;
+    }
+
     // updateLocalRot(): this{
     //     let b;
     //     for( b of this.bones ){

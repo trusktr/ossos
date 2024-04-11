@@ -21,13 +21,16 @@ export default class BoneMap{
         let key : string | null;
 
         for( const b of bAry ){
+            // console.log( 'Bone: ', b.name );
             for( bp of Parsers ){
                 // Can generate universal bone key?
                 if( !(key = bp.test( b.name )) ) continue;
                 bi = this.bones.get( key );
 
+                // console.log( '---', key );
+
                 // Get bone info, else create if doesn't exist
-                if( !bi )                   this.bones.set( key, new BoneInfo( b ) );
+                if( !bi ) this.bones.set( key, new BoneInfo( b ) );
 
                 // If found & is a chain, push extra bones
                 else if( bi && bp.isChain ) bi.push( b );   
@@ -129,14 +132,16 @@ class BoneParse{
 
 const reLeft    = new RegExp( '\\.l|left|_l', 'i' );
 const reRight   = new RegExp( '\\.r|right|_r', 'i' );
+
 const Parsers   = [
     new BoneParse( 'thigh',     true, 'thigh|up.*leg', 'twist' ), //upleg | upperleg
-    new BoneParse( 'shin',      true, 'shin|leg|calf", "up|twist' ),
+    new BoneParse( 'shin',      true, 'shin|leg|calf', 'up|twist' ),
     new BoneParse( 'foot',      true, 'foot' ),
+    new BoneParse( 'toe',       true, 'toe' ),
     new BoneParse( 'shoulder',  true, 'clavicle|shoulder' ),
     new BoneParse( 'upperarm',  true, '(upper.*arm|arm)', 'fore|twist|lower' ),
     new BoneParse( 'forearm',   true, 'forearm|arm', 'up|twist' ),
-    new BoneParse( 'hand',      true, 'hand', "thumb|index|middle|ring|pinky" ),
+    new BoneParse( 'hand',      true, 'hand', 'thumb|index|middle|ring|pinky' ),
 
     new BoneParse( 'head',      false, 'head' ),
     new BoneParse( 'neck',      false, 'neck' ),
@@ -146,4 +151,5 @@ const Parsers   = [
     // eslint-disable-next-line no-useless-escape
     new BoneParse( 'spine',     false, 'spine.*\d*|chest', undefined, true ),
 ];
+
 // #endregion
