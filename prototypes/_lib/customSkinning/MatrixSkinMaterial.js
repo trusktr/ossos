@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 export default function MatrixSkinMaterial( val='cyan', skin ){
-    const isTex    = ( val instanceof THREE.Texture );
+    const isTex    = ( val instanceof THREE.Texture || val.isTexture );
     const uniforms = {
         pose : { value: skin?.offsetBuffer },
     };
@@ -29,6 +29,10 @@ export default function MatrixSkinMaterial( val='cyan', skin ){
 
     const mat       = new THREE.RawShaderMaterial( matConfig );
     mat.extensions  = { derivatives : true }; // If not using WebGL2.0 and Want to use dfdx or fwidth, Need to load extension
+
+    Object.defineProperty( mat, 'map', {
+        set( c ){ mat.uniforms.texBase.value = c ; },
+    });
 
     return mat;
 }

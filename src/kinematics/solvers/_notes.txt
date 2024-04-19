@@ -1,0 +1,8 @@
+Degree of arc between two points
+- Angle in radians = 2 * arcsin( Distance / ( 2 * Radius ) )
+
+If the two points are the center of the circle with a Distance of 10 with a radius of 5
+It should return a value of 180, which is a straight line OR half a circle.
+
+If the distance gets smaller, the arc will get smaller but we want to expand the half circle
+to a full circle. So (180-arc) + 180 should give you the circle arc of more then half.

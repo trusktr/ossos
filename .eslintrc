@@ -16,6 +16,7 @@
     "rules"     : {
       "@typescript-eslint/no-inferrable-types" : 0,
       "@typescript-eslint/no-array-constructor": 0,
-      "@typescript-eslint/no-explicit-any":0
+      "@typescript-eslint/no-explicit-any":0,
+      "@typescript-eslint/ban-ts-comment": "off"
     }
   }

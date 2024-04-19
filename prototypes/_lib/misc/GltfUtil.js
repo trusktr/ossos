@@ -126,8 +126,9 @@ export default class GltfUtil{
 
             if( p.materialIdx !== undefined ){
                 gMat = gltf.getMaterial( p.materialIdx );
-                col  = new THREE.Color( gMat.baseColorFactor[0], gMat.baseColorFactor[1], gMat.baseColorFactor[2] );
-                mat  = new THREE.MeshPhongMaterial( { color: col } );
+                // col  = new THREE.Color( gMat.baseColorFactor[0], gMat.baseColorFactor[1], gMat.baseColorFactor[2] );
+                // { color: col }
+                mat  = new THREE.MeshPhongMaterial(  );
             }else{
                 mat  = new THREE.MeshPhongMaterial();
             }

@@ -1,0 +1,176 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title></title></head>
+<style>canvas{ display:block; } body, html { padding:0px; margin:0px; width:100%; height:100%; }</style>
+<body><script type="module">
+//#region IMPORTS
+import useThreeWebGL2, { THREE, useDarkScene, useVisualDebug } from '../_lib/useThreeWebGL2.js';
+import Util                         from '../_lib/misc/Util.js';
+import fetchTexture                 from '../_lib/misc/fetchTexture.js';
+// import Gltf2                        from '../_lib/gltf2Parser.es.js';
+import GltfUtil, { Gltf2 }          from '../_lib/misc/GltfUtil.js';
+
+import { Armature, Pose, TranMatrixSkin, BoneSockets, Maths, PoseAnimator, Clip, LerpType, TrackQuat, TrackVec3, Quat } from '../../src/index';
+
+import MatrixSkinMaterial           from '../_lib/customSkinning/MatrixSkinMaterial.js';
+//#endregion
+
+//#region MAIN
+let App = useDarkScene( useThreeWebGL2() );
+let Ref = { 
+    left    : false,
+    right   : false,
+};
+let Debug;
+
+window.addEventListener( 'load', async _=>{
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // Setup
+    App.sphericalLook( 20, 20, 5, [ 0, 1, 0 ] );
+    Debug = await useVisualDebug( App );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // Create Skinned Mesh from GLTF Model
+    // const tex  = await fetchTexture( '/prototypes/_res/models/pete/pete_texture.png', false );
+    const gltf  = await Gltf2.fetch( '/prototypes/_res/models/kaykit/kaykit_char_animations.gltf' );
+    const arm   = parseArmature( gltf );
+    const pose  = arm.newPose();
+    // console.log( gltf.getAnimationNames() );
+    // console.log( gltf.getSkin() );
+
+    // console.log( arm.poses.bind.bones );
+    // Util.debugBones( arm.poses.bind.bones, Debug, 0.05, 0.8 );
+
+    const glAnim    = gltf.getAnimation( 'Walking_A' );
+    const clip      = gltfClip( glAnim, arm.poses.bind );
+
+    clip.debugInfo( arm );
+    console.log( clip );
+
+    const animator  = new PoseAnimator();
+    animator.scale  = 1.0;
+    animator.setClip( clip );
+    animator.start();
+
+    animator.atFrame( 0 );
+    animator.updatePose( pose );
+    pose.updateWorld();
+    Util.debugBones( pose.bones, Debug, 0.05, 0.8 );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    Ref.pose        = pose;
+    Ref.animator    = animator;
+    
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // Ref.shake = cameraShake( App.camera );
+    // App.createRenderLoop( onPreRender ).start(); 
+    App.renderLoop();
+});
+//#endregion
+
+function onPreRender( dt, et ){
+    Ref.animator
+        .step( dt )
+        .updatePose( Ref.pose );
+
+    // console.log( Ref.animator.clock );
+    
+    Ref.pose.updateWorld();
+    // Ref.skin.updateFromPose( Ref.pose );
+
+    Debug.pnt.reset();
+    Debug.ln.reset();
+    Util.debugBones( Ref.pose.bones, Debug, 0.05, 0.8 );
+}
+
+
+function gltfClip( anim, pose ){
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    const clip = new Clip( anim.name );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    let i;
+    for( i of anim.timestamps ){
+        if( i.data )                         clip.timeStamps.push( new Float32Array( i.data ) ); // Clone TimeStamp Data so its not bound to GLTF's BIN
+        if( i.elementCnt > clip.frameCount ) clip.frameCount = i.elementCnt;                     // Find max frame counts
+        if( i?.boundMax[0] > clip.duration ) clip.duration   = i.boundMax[0];                    // Find full duration
+    }
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    let gTrack; // Gltf Track
+    let oTrack; // Ossos Track
+    let bName;  // Bone Name
+    let reBoneFilter = new RegExp( /(root|hips?)/i ); // Only use Vec3 tracks for root or hip bone
+
+    for( gTrack of anim.tracks ){
+        // -------------------------------------------
+        if( !gTrack.keyframes.data ){
+            console.error( 'GLTF Animation Track has no keyframe data' );
+            continue;
+        }
+
+        // -------------------------------------------
+        oTrack = null;
+        switch( gTrack.transform ){
+            // Rotation
+            case 0: oTrack = new TrackQuat( gTrack.interpolation ); break;
+
+            // Translation
+            case 1:
+                bName = pose.bones[ gTrack.jointIndex ].name;
+                if( reBoneFilter.test( bName ) ){
+                    oTrack = new TrackVec3( gTrack.interpolation ); break;
+                }
+                break;
+
+            // Scale
+            case 2: break;
+        }
+
+        // -------------------------------------------
+        if( !oTrack ) continue;
+
+        oTrack.setData( gTrack.keyframes.data );
+        oTrack.boneIndex = gTrack.jointIndex;
+        oTrack.timeIndex = gTrack.timeStampIndex;
+
+        clip.tracks.push( oTrack );
+    }
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    return clip;
+}
+
+// #region GLTF HELPERS
+
+function parseArmature( gltf, mkOffsetPose=false ){
+    const skin  = gltf.getSkin();
+    const arm   = new Armature();
+
+    let b;
+    for( const j of skin.joints ){
+        b = arm.addBone( { name: j.name, parent: j.parentIndex } );
+        if( j.rotation ) b.local.rot.copy( j.rotation );
+        if( j.position ) b.local.pos.copy( j.position );
+        if( j.scale )    b.local.scl.copy( j.scale );
+    }
+
+    arm.bind( 0.1 );
+
+    if( mkOffsetPose && ( skin.scale || skin.rotation ) ){
+        const pose = arm.newPose( 'opose' );
+        if( skin.scale )    pose.offset.scl.copy( skin.scale );
+        if( skin.rotation ) pose.offset.rot.copy( skin.rotation );
+        pose.updateWorld();
+    }
+
+    return arm;
+}
+
+function gltfGetAsset( gltf, name, tex ){
+    const bGeo = GltfUtil.loadGeoBuffers( gltf, name, false )[0];
+    const mat  = new THREE.MeshBasicMaterial( {map:tex} );
+    return new THREE.Mesh( bGeo, mat );
+}
+
+// #endregion
+
+</script></body></html>

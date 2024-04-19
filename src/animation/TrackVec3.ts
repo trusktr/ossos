@@ -18,7 +18,6 @@ export default class TrackVec3 implements ITrack{
 
     values   !: Float32Array | Array<number>;   // Flat data of animation
     vbuf     !: Vec3Buffer;                     // Vec3 wrapper over flat data
-    fnLerp   !: TLerpFn;                        // Interpolation function to use.
     
     constructor(  lerpType: number=LerpType.Linear ){        
         this.lerpType   = lerpType;

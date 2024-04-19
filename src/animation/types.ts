@@ -16,6 +16,7 @@ export interface ITrack{
     timeIndex       : number;
     values          : Float32Array | Array<number>;
     boneIndex       : number;
+    lerpType        : number;
 
     setData( data:ArrayLike<number> ): this;
     apply( pose: Pose, fi: FrameInfo ): this;

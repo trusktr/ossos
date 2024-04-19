@@ -20,7 +20,6 @@ export default class TrackQuat implements ITrack{
 
     values   !: Float32Array | Array<number>;   // Flat data of animation
     vbuf     !: QuatBuffer;                     // Quat wrapper over flat data
-    fnLerp   !: TLerpFn;                        // Interpolation function to use.
     
     constructor(  lerpType: number=LerpType.Linear ){        
         this.lerpType   = lerpType;

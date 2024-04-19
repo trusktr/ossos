@@ -1,0 +1,210 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title></title></head>
+<style>canvas{ display:block; } body, html { padding:0px; margin:0px; width:100%; height:100%; }</style>
+<body><script type="module">
+// #region IMPORTS
+import useThreeWebGL2, { THREE, useDarkScene, useVisualDebug } from '../_lib/useThreeWebGL2.js';
+import Util                         from '../_lib/misc/Util.js';
+import fetchTexture                 from '../_lib/misc/fetchTexture.js';
+import GltfUtil, { Gltf2 }          from '../_lib/misc/GltfUtil.js';
+
+import { Armature, Pose, TranMatrixSkin, BoneSockets, Maths, PoseAnimator, Clip, LerpType, TrackQuat, TrackVec3, Quat } from '../../src/index';
+
+import MatrixSkinMaterial           from '../_lib/customSkinning/MatrixSkinMaterial.js';
+// #endregion
+
+// #region MAIN
+let App = useDarkScene( useThreeWebGL2() );
+let Ref = { 
+    left    : false,
+    right   : false,
+};
+let Debug;
+
+window.addEventListener( 'load', async _=>{
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // Setup
+    App.sphericalLook( 20, 20, 5, [ 0, 1, 0 ] );
+    Debug = await useVisualDebug( App );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    const path = '/prototypes/_res/models/kaykit/';
+    const [ meshes, arm ] = await loadCharacter( path + 'kaykit_char_pete.gltf' );
+    App.scene.add( ...meshes );
+
+    const pose     = arm.newPose();
+    const clip     = await loadAnimation( path + 'kaykit_char_animations.gltf', 'Walking_A', pose );
+
+    const animator = new PoseAnimator();
+    animator.scale = 0.2; // Slow down animation
+    animator.setClip( clip );
+    animator.start();
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    Ref.animator    = animator;
+    Ref.char        = { arm, pose };
+    
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    App.createRenderLoop( onPreRender ).start(); 
+    // App.renderLoop();
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // animator.atFrame( 0 );
+    // animator.updatePose( pose );
+    // pose.updateWorld();
+    
+    // arm.skin.updateFromPose( pose );
+    // Util.debugBones( pose.bones, Debug, 0.05, 0.8 );
+});
+
+function onPreRender( dt, et ){
+    if( Ref.animator.isRunning ){
+        Ref.animator
+            .step( dt )
+            .updatePose( Ref.char.pose );
+        
+        Ref.char.pose.updateWorld();
+        Ref.char.arm.skin.updateFromPose( Ref.char.pose );
+
+        Debug.reset();
+        Util.debugBones( Ref.char.pose.bones, Debug, 0.05, 0.8 );
+    }
+}
+
+// #endregion
+
+async function loadAnimation( url, animName, pose ){
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    const gltf = await Gltf2.fetch( url );
+    const anim = gltf.getAnimation( animName );
+    const clip = new Clip( anim.name );
+
+    // console.log( gltf.getAnimationNames() );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // TIMESTAMPS
+    let i;
+    for( i of anim.timestamps ){
+        if( i.data )                         clip.timeStamps.push( new Float32Array( i.data ) ); // Clone TimeStamp Data so its not bound to GLTF's BIN
+        if( i.elementCnt > clip.frameCount ) clip.frameCount = i.elementCnt;                     // Find max frame counts
+        if( i?.boundMax[0] > clip.duration ) clip.duration   = i.boundMax[0];                    // Find full duration
+    }
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // TRANSFORM TRACKS
+    let gTrack; // Gltf Track
+    let oTrack; // Ossos Track
+    let bName;  // Bone Name
+    let boneFilter = new RegExp( /(root|hips?)/i ); // Only use Vec3 tracks for root or hip bone
+
+    for( gTrack of anim.tracks ){
+        // -------------------------------------------
+        if( !gTrack.keyframes.data ){
+            console.error( 'GLTF Animation Track has no keyframe data' );
+            continue;
+        }
+
+        // -------------------------------------------
+        // Filter out data that isn't needed to animate most of the time
+        // Rotation is all we need, Position only matters for root and hip bones
+        // Scale is rarely ever needed, its just a waste of memory & math processing
+        switch( gTrack.transform ){
+            // Rotation
+            case 0: oTrack = new TrackQuat( gTrack.interpolation ); break;
+
+            // Translation
+            case 1:
+                bName  = pose.bones[ gTrack.jointIndex ].name;
+                oTrack = boneFilter.test( bName )? new TrackVec3( gTrack.interpolation ) : null;
+                break;
+
+            // Scale - NO SCALE
+            case 2: oTrack = null; break;
+        }
+
+        // -------------------------------------------
+        if( !oTrack ) continue;
+
+        oTrack.setData( gTrack.keyframes.data );
+        oTrack.boneIndex = gTrack.jointIndex;
+        oTrack.timeIndex = gTrack.timeStampIndex;
+
+        clip.tracks.push( oTrack );
+    }
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    return clip;
+}
+
+async function loadCharacter( url ){
+    const gltf = await Gltf2.fetch( url );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    const arm = parseArmature( gltf );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    const gMesh  = gltf.getMesh();
+    const meshes = [];
+
+    // const mat = new THREE.MeshPhongMaterial();
+    const mat = MatrixSkinMaterial( new THREE.Texture(), arm.skin );
+
+    for( const prim of gMesh.primitives ){
+        // --------------------------------------
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute( 'position', new THREE.BufferAttribute( prim.position.data, prim.position.componentLen ) );
+
+        if( prim.indices )    geo.setIndex( new THREE.BufferAttribute( prim.indices.data, 1 ) );
+        if( prim.normal )     geo.setAttribute( 'normal', new THREE.BufferAttribute( prim.normal.data, prim.normal.componentLen ) );
+        if( prim.texcoord_0 ) geo.setAttribute( 'uv', new THREE.BufferAttribute( prim.texcoord_0.data, prim.texcoord_0.componentLen ) );
+
+        if( prim.joints_0 && prim.weights_0 ){
+            geo.setAttribute( 'skinWeight', new THREE.BufferAttribute( prim.weights_0.data, prim.weights_0.componentLen ) );
+            geo.setAttribute( 'skinIndex',  new THREE.BufferAttribute( prim.joints_0.data,  prim.joints_0.componentLen ) );
+        }
+
+        // -------------------------------------
+        if( prim.materialIdx !== -1 ){
+            const m = gltf.getMaterial( prim.materialIdx );
+            if( m.baseTexture ){
+                const tex = new THREE.TextureLoader().load( gltf.path + m.baseTexture.uri );
+                tex.flipY = false;
+                mat.map   = tex;
+            }
+        }
+
+        const mesh = new THREE.Mesh( geo, mat );
+        meshes.push( mesh );
+    }
+
+    return [ meshes, arm ];
+}
+
+function parseArmature( gltf, mkOffsetPose=false ){
+    const skin  = gltf.getSkin();
+    const arm   = new Armature();
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    let b;
+    for( const j of skin.joints ){
+        b = arm.addBone( { name: j.name, parent: j.parentIndex } );
+        if( j.rotation ) b.local.rot.copy( j.rotation );
+        if( j.position ) b.local.pos.copy( j.position );
+        if( j.scale )    b.local.scl.copy( j.scale );
+    }
+
+    arm.bind( 0.1 );
+    arm.useSkin( TranMatrixSkin );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    if( mkOffsetPose && ( skin.scale || skin.rotation ) ){
+        const pose = arm.newPose( 'opose' );
+        if( skin.scale )    pose.offset.scl.copy( skin.scale );
+        if( skin.rotation ) pose.offset.rot.copy( skin.rotation );
+        pose.updateWorld();
+    }
+    
+    return arm;
+}
+
+</script></body></html>

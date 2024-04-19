@@ -1,8 +1,12 @@
 // #region IMPORTS
 import type { ITrack } from './types';
-import { EventType }   from './types';
-import AnimationEvent  from './AnimationEvent';
-import RootMotion      from './RootMotion';
+import type Armature   from '../armature/Armature';
+
+import { EventType, LerpType }  from './types';
+import AnimationEvent           from './AnimationEvent';
+import RootMotion               from './RootMotion';
+import TrackQuat                from './TrackQuat';
+import TrackVec3 from './TrackVec3';
 // #endregion
 
 export default class Clip{
@@ -55,6 +59,43 @@ export default class Clip{
         }  
 
         return -1;
+    }
+    // #endregion
+
+    // #region DEBUG
+    debugInfo( arm ?: Armature ){
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        const pose          = arm?.bindPose;
+        const lerpKeys      = Object.keys( LerpType );
+
+        // @ts-ignore
+        const getLerpName   = ( v: number ): any => lerpKeys.find( k=>LerpType[k] === v );
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        let bName     = '';
+        let trackType = '';
+
+        console.log( 'Clip Name [ %s ] \t Track Count [ %d ] \t Max frames [ %d ]'
+            , this.name
+            , this.tracks.length
+            , this.frameCount
+        );
+
+        for( const t of this.tracks ){
+            if( pose ) bName = pose.bones[ t.boneIndex ].name;
+            if( t instanceof TrackQuat )        trackType = 'quat';
+            else if( t instanceof TrackVec3 )   trackType = 'vec3';
+            else                                trackType = 'Unknown';
+
+            // console.log( bName, trackType, this.timeStamps[ t.timeIndex ].length, getLerpName( t.lerpType ), t );
+            
+            console.log( 'Bone [ %s ] \t Type [ %s ] \t Lerp Type [ %s ] \t Frames [ %d ]'
+                , bName
+                , trackType
+                , getLerpName( t.lerpType )
+                , this.timeStamps[ t.timeIndex ].length
+            );
+        }
     }
     // #endregion
 }
