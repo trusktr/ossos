@@ -1,0 +1,328 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title></title></head>
+<style>canvas{ display:block; } body, html { padding:0px; margin:0px; width:100%; height:100%; }</style>
+<body><script type="module">
+// #region IMPORTS
+import useThreeWebGL2, { THREE, useDarkScene, useVisualDebug } from '../_lib/useThreeWebGL2.js';
+import Util                         from '../_lib/misc/Util.js';
+import fetchTexture                 from '../_lib/misc/fetchTexture.js';
+import GltfUtil, { Gltf2 }          from '../_lib/misc/GltfUtil.js';
+
+import { Armature, Pose, TranMatrixSkin, BoneSockets, Maths, PoseAnimator, Clip, LerpType, TrackQuat, TrackVec3, Quat } from '../../src/index';
+
+import MatrixSkinMaterial           from '../_lib/customSkinning/MatrixSkinMaterial.js';
+// #endregion
+
+// #region MAIN
+let App = useDarkScene( useThreeWebGL2() );
+let Ref = { 
+    left    : false,
+    right   : false,
+};
+let Debug;
+
+window.addEventListener( 'load', async _=>{
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // Setup
+    App.sphericalLook( 20, 20, 5, [ 0, 1, 0 ] );
+    Debug = await useVisualDebug( App );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    const path = '/prototypes/_res/models/mmd/';
+    
+    // Load Pose
+    // const mPose = await MmdPose.fetch( path + 'YogaPose/Yoga Pose 15.vpd' );
+    const mPose = await MmdPose.fetch( path + 'PosePack7/3.vpd' );
+    console.log( mPose );
+
+    // Load Skeleton
+    // const gltf = await Gltf2.fetch( path + 'tda_base_skel.gltf' );
+    const gltf = await Gltf2.fetch( path + 'neru_skel.gltf' );
+    const arm  = parseArmature( gltf );
+    // Util.debugBones( arm.poses.bind.bones, Debug, 0.05, 0.8 );
+    console.log( arm.poses.bind );
+
+    // Translate Bone Names
+    arm.names.clear();
+    for( const b of arm.poses.bind.bones ){
+        const i = jNames.indexOf( b.name );
+        if( i > -1 ) b.name = jNames[i+1];
+        arm.names.set( b.name, b.index );
+    }
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    const pose = arm.newPose();
+
+    mPose.applyTo( pose );
+    pose.updateWorld();
+
+    Util.debugBones( pose.bones, Debug, 0.05, 0.8 );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // App.createRenderLoop( onPreRender ).start(); 
+    App.renderLoop();
+});
+
+function onPreRender( dt, et ){
+    // if( Ref.animator.isRunning ){
+    //     Ref.animator
+    //         .step( dt )
+    //         .updatePose( Ref.char.pose );
+        
+    //     Ref.char.pose.updateWorld();
+    //     Ref.char.arm.skin.updateFromPose( Ref.char.pose );
+
+    //     Debug.reset();
+    //     Util.debugBones( Ref.char.pose.bones, Debug, 0.05, 0.8 );
+    // }
+}
+
+// #endregion
+
+async function loadCharacter( url ){
+    const gltf = await Gltf2.fetch( url );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    const arm = parseArmature( gltf );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    const gMesh  = gltf.getMesh();
+    const meshes = [];
+
+    // const mat = new THREE.MeshPhongMaterial();
+    const mat = MatrixSkinMaterial( new THREE.Texture(), arm.skin );
+
+    for( const prim of gMesh.primitives ){
+        // --------------------------------------
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute( 'position', new THREE.BufferAttribute( prim.position.data, prim.position.componentLen ) );
+
+        if( prim.indices )    geo.setIndex( new THREE.BufferAttribute( prim.indices.data, 1 ) );
+        if( prim.normal )     geo.setAttribute( 'normal', new THREE.BufferAttribute( prim.normal.data, prim.normal.componentLen ) );
+        if( prim.texcoord_0 ) geo.setAttribute( 'uv', new THREE.BufferAttribute( prim.texcoord_0.data, prim.texcoord_0.componentLen ) );
+
+        if( prim.joints_0 && prim.weights_0 ){
+            geo.setAttribute( 'skinWeight', new THREE.BufferAttribute( prim.weights_0.data, prim.weights_0.componentLen ) );
+            geo.setAttribute( 'skinIndex',  new THREE.BufferAttribute( prim.joints_0.data,  prim.joints_0.componentLen ) );
+        }
+
+        // -------------------------------------
+        if( prim.materialIdx !== -1 ){
+            const m = gltf.getMaterial( prim.materialIdx );
+            if( m.baseTexture ){
+                const tex = new THREE.TextureLoader().load( gltf.path + m.baseTexture.uri );
+                tex.flipY = false;
+                mat.map   = tex;
+            }
+        }
+
+        const mesh = new THREE.Mesh( geo, mat );
+        meshes.push( mesh );
+    }
+
+    return [ meshes, arm ];
+}
+
+function parseArmature( gltf, mkOffsetPose=false ){
+    const skin  = gltf.getSkin();
+    const arm   = new Armature();
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    let b;
+    for( const j of skin.joints ){
+        b = arm.addBone( { name: j.name, parent: j.parentIndex } );
+        if( j.rotation ) b.local.rot.copy( j.rotation );
+        if( j.position ) b.local.pos.copy( j.position );
+        if( j.scale )    b.local.scl.copy( j.scale );
+    }
+
+    arm.bind( 0.1 );
+    arm.useSkin( TranMatrixSkin );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    if( mkOffsetPose && ( skin.scale || skin.rotation ) ){
+        const pose = arm.newPose( 'opose' );
+        if( skin.scale )    pose.offset.scl.copy( skin.scale );
+        if( skin.rotation ) pose.offset.rot.copy( skin.rotation );
+        pose.updateWorld();
+    }
+    
+    return arm;
+}
+
+
+class MmdPose{
+    bones = {};
+    constructor( txt ){
+        const iter = chunkIter( txt );
+        for( const i of iter ){
+            const b = parseChunk( i );
+            if( !b ) continue;
+            this.bones[ b.name ] = b;
+        }
+    }
+
+    applyTo( p ){
+        const q = new Quat();
+        for( const b of Object.values( this.bones ) ){
+            const pb = p.getBone( b.name );
+            
+            if( !pb ) continue;
+
+            // if( b.rot ) pb.local.rot.mul( b.rot );
+            // if( b.pos ) pb.local.pos.add( b.pos );
+            
+            if( b.rot ){
+                b.rot[0] = -b.rot[0]; // Left2Right Conversion
+                b.rot[1] = -b.rot[1]; // Left2Right Conversion
+
+                pb.local.rot.mul( b.rot );
+
+                // q.fromInvert( b.rot );
+                // pb.local.rot.pmul( q );
+            }
+
+            // if( b.pos ){
+            //     b.pos[2] = -b.pos[2];
+            //     pb.local.pos.add( b.pos );
+            // }
+            
+            
+            console.log( b, pb );
+        }
+
+    }
+
+    static async fetch( url ){
+        const res = await fetch( url );
+        if( !res.ok ){
+            console.log( 'Error', res.status );
+            return null;
+        }
+
+        const abuf = await res.arrayBuffer();
+        const txt  = new TextDecoder( 'shift-jis' ).decode( abuf );
+        const obj  = new MmdPose( txt );
+        return obj;
+    }
+}
+
+function isZero( v ){ return v[0] === 0 && v[1] === 0 && v[2] === 0; };
+
+function *chunkIter( str ){
+    const maxLen    = str.length;
+    let iStart      = str.indexOf( 'Bone' );
+    let iLast       = 0;
+
+    while( iStart >= 0 ){
+        iLast  = str.indexOf( '}', iStart + 1 );
+        yield str.substring( iStart, iLast + 1 );
+        iStart = str.indexOf( 'Bone', iLast + 1 );
+    }
+}
+
+function parseChunk( chunk ){
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    const re  = /\s.([0-9\.\-,]+);/g;
+    const rtn = {};
+    let cnt   = 0;
+
+    for( let m of chunk.matchAll( re ) ){
+        const v = m[1].split(',').map( i=>parseFloat(i) );
+
+        if( isZero( v ) ) continue;
+        
+        if( v.length === 3 ) rtn.pos = v;
+        else                 rtn.rot = v;
+
+        cnt++;
+    }
+
+    if( cnt === 0 ) return null;
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    const a  = chunk.indexOf( '{' );
+    const b  = chunk.indexOf( '\n' );
+    rtn.name = chunk.substring( a+1, b ).trim();
+
+    const i  = jNames.indexOf( rtn.name );
+    if( i > -1 ) rtn.name = jNames[ i+1 ];
+
+    // if( rtn.name.indexOf( 'IK' ) > -1 ) return null;
+
+    return rtn;
+}
+
+// https://learnmmd.com/http:/learnmmd.com/mmd-bone-reference-charts/
+const jNames = [
+    '全ての親', 'mother',
+    'グルーブ',	'groove',
+    '腰', 'waist',
+    'センター', 'center',
+    '上半身', 'upper body',
+    '上半身2', 'upper body 2',
+    '首', 'neck',
+    '頭', 'head',
+    
+    '下半身', 'lower body',
+    '左肩', 'shoulderL',
+    '左腕', 'armL',
+    '左ひじ', 'elbowL',
+    '左手首', 'wristL',
+    '左親指０', 'thumb0L',
+    '左親指１', 'thumb1L',
+    '左親指２', 'thumb2L',
+    '左人指１', 'fore1L',
+    '左人指２', 'fore2L',
+    '左人指３', 'fore3L',
+    '左中指１', 'middle1L',
+    '左中指２', 'middle2L',
+    '左中指３', 'middle3L',
+    '左薬指１', 'third1L',
+    '左薬指２', 'third2L',
+    '左薬指３', 'third3L',
+    '左小指１', 'little1L',
+    '左小指２', 'little2L',
+    '左小指３', 'little3L',
+    
+    '左足',   'legL',
+    '左ひざ', 'kneeL',
+    '左足首', 'ankleL',
+    
+    '右足',   'legR',
+    '右ひざ', 'kneeR',
+    '右足首', 'ankleR',
+
+    '両目',   'eyes',
+    '左目',   'eyeL',
+    '左目先', 'eyeL',
+    '左目戻', 'eyeBackL',
+    '右目',   'eyeR',
+    '右目先', 'eyeR',
+    '右目戻', 'eyeBackR',
+
+    '右肩', 'shoulderR',
+    '右腕', 'armR',
+    '右ひじ', 'elbowR',
+    '右手首', 'wristR',
+    '右親指１', 'thumb1R',
+    '右親指２', 'thumb2R',
+    '右人指１', 'fore1R',
+    '右人指２', 'fore2R',
+    '右人指３', 'fore3R',
+    '右中指１', 'middle1R',
+    '右中指２', 'middle2R',
+    '右中指３', 'middle3R',
+    '右薬指１', 'third1R',
+    '右薬指２', 'third2R',
+    '右薬指３', 'third3R',
+    '右小指１', 'little1R',
+    '右小指２', 'little2R',
+    '右小指３', 'little3R',
+
+    '左足ＩＫ', 'leg IK L',
+    '左つま先ＩＫ', 'toe IK L',
+    '右足ＩＫ', 'leg IK R',
+    '右つま先ＩＫ', 'toe IK R',
+];
+
+</script></body></html>
