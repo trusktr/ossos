@@ -6,7 +6,7 @@ import useThreeWebGL2, { THREE, useDarkScene, useVisualDebug } from '../_lib/use
 import Util                         from '../_lib/misc/Util.js';
 import { TranMatrixSkin, Pose }     from '../../src/index';
 import { vec3, quat }               from 'gl-matrix';
-import { GltfUtil }                 from '../_lib/misc/GltfUtil.js';
+import GltfUtil                     from '../_lib/misc/GltfUtil.js';
 //#endregion
 
 // #region MAIN
@@ -25,7 +25,7 @@ window.addEventListener( 'load', async _=>{
     const gltf = await GltfUtil.fetch( '/prototypes/_res/models/MK00.gltf' );
     
     // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    const ikbot = new MK01( gltf );
+    const ikbot = new MK00( gltf );
     App.scene.add( ikbot.group );
 
     ikbot.setPosition( [0,0.6,0] );
@@ -71,14 +71,14 @@ import noise2  from '../_lib/perlin2.js';
 const MAX_EYELID_ANG = 30;
 const MAX_EYELID_RAD = MAX_EYELID_ANG * Math.PI / 180;
 
-class MK01{
+class MK00{
     constructor( gltf ){
         this.arm    = GltfUtil.parseArmature( gltf );
-        this.skin   = new TranMatrixSkin( this.arm );
+        this.skin   = this.arm.useSkin( TranMatrixSkin ); //new TranMatrixSkin( this.arm.bindPose );
         this.group  = new THREE.Group();
-        this.pose   = new Pose( this.arm );
+        this.pose   = this.arm.newPose();
 
-        const nList = GltfUtil.filterMeshNodes( gltf, true, 'MKB_' );
+        const nList = GltfUtil.filterNodes( gltf, { prefix: 'MKB_', isMesh: true, } );
         GltfUtil.loadNodeMeshes( gltf, nList, this.skin, this.group );
     }
     
@@ -93,13 +93,13 @@ class MK01{
         dn = Math.min( Math.max( dn, 0 ), 1 );
         
         // Top Eyelid
-        b = this.arm.getBone( 'EyelidUp' );
+        b = this.arm.poses.bind.getBone( 'EyelidUp' );
         quat.setAxisAngle( q, [1,0,0], -MAX_EYELID_RAD * up );
         quat.mul( q, q, b.local.rot );
         this.pose.setLocalRot( 'EyelidUp', q );
 
         // Bottom Eyelid
-        b = this.arm.getBone( 'EyelidDn' );
+        b = this.arm.poses.bind.getBone( 'EyelidDn' );
         quat.setAxisAngle( q, [1,0,0], MAX_EYELID_RAD * dn );
         quat.mul( q, q, b.local.rot );
         this.pose.setLocalRot( 'EyelidDn', q );
@@ -108,7 +108,7 @@ class MK01{
     }
 
     setLook( lonDeg, latDeg ){
-        const b = this.arm.getBone( 'Eye' );
+        const b = this.arm.poses.bind.getBone( 'Eye' );
         const q = QuatEx.polar( [0,0,0,0], lonDeg, latDeg );
         
         quat.mul( q, q, b.local.rot );

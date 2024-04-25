@@ -173,7 +173,6 @@ export default class GltfUtil{
 
         return out;
     }
-    
     // #endregion
 
     // #region ANIMATIONS
