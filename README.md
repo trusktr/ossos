@@ -17,11 +17,10 @@ This project is working toward a complete character skinning & animation library
 ### Setup ###
 
 ```
+git clone --recurse-submodules --depth=1 https://github.com/sketchpunklabs/ossos
 npm install
 npm run dev
 ```
-
-**[ NOTE ]** To be able to run the example, you'll need to go into /examples/_res/ and follow the instructions to clone the resource repo. The files are quite large, so they are kept in a seperate repo to keep this project as light weight as possible.
 
 ## Usage ###
 

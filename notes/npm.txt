@@ -1,3 +1,5 @@
 npm outdated
 npm update eslint  // upgrade to nearest minor release
 npm install typescript@5  // upgrade from 4 to 5
+
+git submodule update --init --recursive
