@@ -1,0 +1,109 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title></title></head>
+<style>canvas{ display:block; } body, html { padding:0px; margin:0px; width:100%; height:100%; }</style>
+<body><script type="module">
+// #region IMPORTS
+import useThreeWebGL2, { THREE, useDarkScene, useVisualDebug } from '../_lib/useThreeWebGL2.js';
+import Util                 from '../_lib/misc/Util.js';
+import { Armature }         from '../../src/index';
+import { vec3, quat }       from 'gl-matrix';
+import { GLTFLoader }       from '../_thirdparty/GLTFLoader.js';
+// #endregion
+
+// #region MAIN
+let App = useDarkScene( useThreeWebGL2() );
+let Debug;
+
+window.addEventListener( 'load', async _=>{
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // Setup
+    App.sphericalLook( 30, 30, 3, [ 0, 1, 0 ] );
+    Debug = await useVisualDebug( App );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    const gltf = await GLTFLoaderAsync( '/prototypes/_res/models/nabba/nabba.gltf' );
+    const grp  = gltf.scene;
+    App.scene.add( grp );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    const skinMesh = grp.children[0].children[0];
+    const skel     = skinMesh.skeleton;
+    const arm      = armatureFromSkeleton( skel );
+    Util.debugBones( arm.poses.bind.bones, Debug, 0.07, 1.3 );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // Pose Armature
+    const pose   = arm.newPose(); // TODO - Dont like ".newPose()", new Pose( arm ) works but would like a shortcut
+    const xLocal = ( arm, bName, xDeg )=>{
+        const q  = quat.setAxisAngle( [], [1,0,0], xDeg * Math.PI / 180 );
+        const qb = pose.getBone( bName ).local.rot;
+        quat.mul( qb, q, qb );
+    };
+
+    xLocal( pose, 'Head', -45 );
+    xLocal( pose, 'Thigh_R', -45 );
+    xLocal( pose, 'Shin_R', -45 );
+    xLocal( pose, 'Foot_R', -45 );
+    xLocal( pose, 'Thigh_L', 45 );
+    xLocal( pose, 'Shin_L', -45 );
+    xLocal( pose, 'Foot_L', -45 );
+
+    pose.getBone( 'Hips' ).local.pos[1] = 1.2;  // Move Body Up
+    pose.getBone( 'Hips' ).local.pos[2] -= 1.0; // ... Back
+
+    // NOTE: Only needed for debugging bones, else no need to compute worldspace 4 this instance
+    pose.updateWorld();
+    Util.debugBones( pose.bones, Debug, 0.07, 1.3, true );
+
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // Copy final pose back to 3JS Skeleton to perform the
+    // final rendering. 90% of the time animation/posing is
+    // just rotation data with the exception of Root/Hip bones
+    // which will often include position data.
+    // Very rarely is scale used on any bone. For silly loading
+    // animations scale can be set at the Root/Hip but in that
+    // sort of thing it's better to set scale on the model & not the bone.
+    for( const b of pose.bones ){
+        const sb = skel.bones[ b.index ];
+        sb.quaternion.fromArray( b.local.rot );
+
+        switch( sb.name ){
+            case 'Hips':
+            case 'Root':
+                sb.position.fromArray( b.local.pos );
+                break;
+        }
+    }
+    
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    App.renderLoop();
+});
+// #endregion
+
+/** Wrap ThreeJS's GLTFLoader in a promise to use Async/Await functionality */
+function GLTFLoaderAsync( url ){
+    return new Promise( ( resolve, reject )=>{
+        new GLTFLoader().load( url, resolve, null, reject );
+    });
+}
+
+/** Build an Ossos Armature from a ThreeJS Skeleton */
+function armatureFromSkeleton( skel ){
+    const arm = new Armature();
+
+    let b;
+    for( const sb of skel.bones ){
+        b = arm.addBone( { 
+            name    : sb.name, 
+            parent  : ( sb.parent instanceof THREE.Bone )? sb.parent.name : null,
+        } );
+
+        b.local.rot.copy( sb.quaternion.toArray() );
+        b.local.pos.copy( sb.position.toArray() );
+        b.local.scl.copy( sb.scale.toArray() );
+    }
+
+    arm.bind( 0.1 );
+    return arm;
+}
+
+</script></body></html>
