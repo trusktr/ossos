@@ -1,5 +1,5 @@
 // #region IMPORTS
-import * as THREE               from '@three';
+import * as THREE               from 'three';
 import { Armature, Clip, TrackVec3, TrackQuat } 
                                 from '../../../src/index';
 import Gltf2                    from '../gltf2Parser.es.js';
@@ -9,6 +9,7 @@ import MatrixSkinPbrMaterial    from '../customSkinning/MatrixSkinPbrMaterial.js
 
 export { Gltf2 };
 
+export { GltfUtil };
 export default class GltfUtil{
 
     // #region ARMATURE

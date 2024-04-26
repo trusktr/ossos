@@ -63,3 +63,7 @@ export {
     Retarget,
 };
 // #endregion
+
+// #region THREE-GLTF
+export * from '../prototypes/_lib/misc/GltfUtil.js';
+// #endregion

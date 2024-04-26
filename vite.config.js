@@ -46,9 +46,12 @@ export default defineConfig(({ command, mode, ssrBuild }) => {
           lib       : {
             entry    : path.resolve(__dirname, "src/index.ts"),
             name     : packageJson.name,
-            formats  : ["es", "cjs", "iife"],
+            formats  : ["es"],
             fileName : ( format )=>fileName[format],
           },
+            rollupOptions: {
+                external: ['three'],
+            }
         },
       };
       
